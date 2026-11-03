@@ -16,7 +16,7 @@
 - Each dock swipe logs one line when it begins and one when it ends (steps, progress, exit speed).
 - **Scrolling feels like the Magic Trackpad**, measured from the owner's trackpad with the Event Sink:
   - the glide after lifting runs at 60 Hz, keeps 94 % of its speed per step and starts at 1.3 × the release speed, so a flick coasts about a second (it used to stop after about half a second);
-  - trackpad-style acceleration: slow movement follows the fingers one to one, fast movement moves the content up to twice as far; the glide starts from that speed.
+  - gentle trackpad-style acceleration: scrolling up to about 53 mm/s follows the fingers one to one, flicks move the content up to 1.5 × as far; the glide starts from that speed.
 - The Event Sink logs each scroll event's timestamp and, for finger scrolls, the HID event the trackpad attaches (its accelerated travel), for measuring scroll behaviour.
 
 ## 1.1.0 (2026-10-11)

@@ -7,6 +7,9 @@ import Foundation
 /// 118-167 pt, about what the touchscreen gives one to one (3 cm = 170 pt on the SIBOLAN), while fast flicks
 /// moved it 180-365 pt during contact, about twice a ~2.5 cm touch flick. The trackpad reports only already
 /// accelerated travel, so the top of the curve is an estimate: tune `maxGain` / `fastSpeed` by feel.
+/// Owner test on the touchscreen: 1:1 to 100 pt/s rising to 2× at 1200 pt/s was too fast (normal ~700 pt/s
+/// scrolls got 1.8×, flicks moved 45 % more than the trackpad during contact), so normal scrolling now stays
+/// one to one up to 300 pt/s (~53 mm/s) and only flicks are boosted, to 1.5× at 2000 pt/s.
 public struct ScrollAcceleration: Sendable {
     /// At or below this finger speed (points per second), content follows the fingers one to one.
     public var slowSpeed: Double
@@ -16,7 +19,7 @@ public struct ScrollAcceleration: Sendable {
     private var speed = 0.0
     private var lastNs: UInt64?
 
-    public init(slowSpeed: Double = 100, fastSpeed: Double = 1200, maxGain: Double = 2.0) {
+    public init(slowSpeed: Double = 300, fastSpeed: Double = 2000, maxGain: Double = 1.5) {
         self.slowSpeed = slowSpeed
         self.fastSpeed = fastSpeed
         self.maxGain = maxGain
