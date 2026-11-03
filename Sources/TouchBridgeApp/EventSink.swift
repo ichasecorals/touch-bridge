@@ -133,11 +133,12 @@ final class EventSink: NSObject, NSApplicationDelegate {
                 }.joined()
             }
             if event.type == .scrollWheel || gesture {
-                fields = String(format: " phase=%lu momentum=%lu dx=%.1f dy=%.1f precise=%@ inverted=%@",
-                                event.phase.rawValue, event.momentumPhase.rawValue, event.scrollingDeltaX, event.scrollingDeltaY,
+                fields = String(format: " ts=%.4f phase=%lu momentum=%lu dx=%.1f dy=%.1f precise=%@ inverted=%@",
+                                event.timestamp, event.phase.rawValue, event.momentumPhase.rawValue, event.scrollingDeltaX, event.scrollingDeltaY,
                                 event.hasPreciseScrollingDeltas ? "y" : "n", event.isDirectionInvertedFromDevice ? "y" : "n") + fields
             }
-            if event.type == .scrollWheel, event.phase == .began || event.phase == .ended || event.phase == .changed && event.scrollingDeltaX != 0,
+            // Every finger scroll event: the trackpad attaches the finger's own travel, which gives its acceleration curve.
+            if event.type == .scrollWheel, event.phase == .began || event.phase == .ended || event.phase == .changed,
                let cg = event.cgEvent {
                 fields += " hid=" + (HIDEventBridge.describeAttached(cg)?.replacingOccurrences(of: "\n", with: " | ") ?? "none")
             }

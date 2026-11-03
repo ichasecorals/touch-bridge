@@ -72,6 +72,7 @@ public final class InputPipeline: @unchecked Sendable {
     /// A push of the hidden cursor against a bottom edge, moving the Dock; nil when none is running.
     private var dockPush: (generation: Int, back: Bool)?
     private var dockPushGeneration = 0
+    private var scrollAcceleration = ScrollAcceleration()
     /// "Bring the Dock over, then back": where the Dock came from, and the watch that says when to return it.
     private var dockReturn: (watch: DockReturnWatch, home: ScreenRect)?
     private var dockReturnTimer: DispatchSourceTimer?
@@ -305,11 +306,16 @@ public final class InputPipeline: @unchecked Sendable {
                 // Two fingers, like the trackpad: the page swipe tracks them. One-finger pans stay plain scrolls.
                 deliverer.scrollGestureStream = settings.swipeBetweenPages && contacts.count >= 2
             }
-            let d = delta(mapper, dx, dy)
-            deliverer.scroll(dx: d.x, dy: d.y, phase: phase)
+            // Trackpad-style: slow movement one to one, fast movement further than the fingers.
+            if phase == .began { scrollAcceleration.reset() }
+            let finger = delta(mapper, dx, dy)
+            let d = scrollAcceleration.apply(dx: finger.x, dy: finger.y, atNs: DispatchTime.now().uptimeNanoseconds)
+            deliverer.scroll(dx: d.dx, dy: d.dy, phase: phase)
         case let .scrollEnded(vx, vy):
+            // The glide starts from the content's (accelerated) speed, as on the trackpad.
             let v = delta(mapper, vx, vy)
-            deliverer.scrollEnded(velocityX: v.x, velocityY: v.y)
+            let g = scrollAcceleration.gain(forSpeed: hypot(v.x, v.y))
+            deliverer.scrollEnded(velocityX: v.x * g, velocityY: v.y * g)
         case let .magnify(value, phase):
             if phase == .began { begin(.magnify, at: centroid(mapper)) }
             deliverer.magnify(value, phase: phase)

@@ -14,6 +14,10 @@
 - With the Launchpad & Show Desktop pinch switched off, four-finger movements are judged only as swipes.
 - Fixes: tap count stops at 3; the log rotates at about 5 MB without losing the line that triggered it; the self-test uses the picked display, and `--dockswipe-selftest` no longer opens Mission Control itself (its Dock-window check was always true, so the test looked like it passed when nothing happened).
 - Each dock swipe logs one line when it begins and one when it ends (steps, progress, exit speed).
+- **Scrolling feels like the Magic Trackpad**, measured from the owner's trackpad with the Event Sink:
+  - the glide after lifting runs at 60 Hz, keeps 94 % of its speed per step and starts at 1.3 × the release speed, so a flick coasts about a second (it used to stop after about half a second);
+  - trackpad-style acceleration: slow movement follows the fingers one to one, fast movement moves the content up to twice as far; the glide starts from that speed.
+- The Event Sink logs each scroll event's timestamp and, for finger scrolls, the HID event the trackpad attaches (its accelerated travel), for measuring scroll behaviour.
 
 ## 1.1.0 (2026-10-11)
 

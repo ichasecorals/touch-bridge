@@ -288,7 +288,7 @@ final class Deliverer {
         guard momentumEnabled, let first = momentum.next() else { end(); return }
         post(EventSynth.scroll(dx: first.dx, dy: first.dy, at: location, phase: nil, momentum: .begin, window: window, source: source))
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 1.0 / 120, repeating: 1.0 / 120)
+        timer.schedule(deadline: .now() + momentum.frameInterval, repeating: momentum.frameInterval)   // 60 Hz, as the trackpad
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             if let step = momentum.next() {
