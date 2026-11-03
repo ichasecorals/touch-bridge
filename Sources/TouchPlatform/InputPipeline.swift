@@ -25,8 +25,8 @@ public struct PipelineSettings: Sendable {
     public var swipeBetweenPages = true
     /// Gestures (default), drawing (one finger is a pen), or multitouch (every finger as TUIO, nothing else).
     public var inputMode: InputMode = .gestures
-    public var displayVendor: UInt32 = 7908
-    public var displayModel: UInt32 = 342
+    public var displayVendor: UInt32 = 20236
+    public var displayModel: UInt32 = 0
 
     public init() {}
 }
