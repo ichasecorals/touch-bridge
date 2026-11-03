@@ -1,12 +1,12 @@
 /// The Mac's trackpad gesture settings (defaults domain com.apple.AppleMultitouchTrackpad), so the
-/// touchscreen can behave like the trackpad. Gestures TouchBridge doesn't implement yet are read too.
+/// touchscreen can behave like the trackpad. Look-up tap and smart zoom are read but have no touch equivalent.
 public struct TrackpadPreferences: Equatable, Sendable {
     public var threeFingerDrag = false   // macOS default: off
     public var scroll = true
     public var momentum = true
     public var pinch = true
     public var rotate = true
-    // Not implemented yet (docs/backlog.md); read so they can follow the settings when they are.
+    // System gestures, all implemented as dock swipes; read so they follow the trackpad switches.
     public var missionControlSwipe = true      // four fingers up / down
     public var spacesSwipe = true              // four fingers left / right
     public var launchpadDesktopPinch = true    // thumb + three/four fingers

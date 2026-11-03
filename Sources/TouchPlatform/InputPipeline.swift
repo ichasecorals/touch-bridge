@@ -8,7 +8,10 @@ public struct PipelineSettings: Sendable {
     public var dryRun = false
     /// Bundle identifier → forced delivery mode.
     public var appOverrides: [String: DeliveryMode] = [:]
-    /// The touch display's EDID identity (defaults: the ARZOPA on this Mac).
+    /// The touch display's EDID identity (see `TouchDisplayIdentity.sibolanFHD`).
+    /// Matched by vendor/model because that is all CoreGraphics gives; the name
+    /// hint is used where `NSScreen` names are available (Event Sink, picker).
+    public var display: TouchDisplayIdentity = .sibolanFHD
     public var focus: FocusMode = .followTouch
     public var oneFingerDrag: OneFingerDragMode = .scroll
     public var threeFingerDrag = true
@@ -25,8 +28,6 @@ public struct PipelineSettings: Sendable {
     public var swipeBetweenPages = true
     /// Gestures (default), drawing (one finger is a pen), or multitouch (every finger as TUIO, nothing else).
     public var inputMode: InputMode = .gestures
-    public var displayVendor: UInt32 = 20236
-    public var displayModel: UInt32 = 0
 
     public init() {}
 }
@@ -35,7 +36,7 @@ public struct PipelineSettings: Sendable {
 public final class InputPipeline: @unchecked Sendable {
     public var onStatus: (@Sendable (String) -> Void)?
     /// Every finger on the panel (up to 10) after each frame, in panel coordinates. Runs on the HID queue.
-    /// Unused today; the hook for a future painting/game mode (see docs/backlog.md).
+    /// Unused diagnostic hook (nothing subscribes today).
     public var onContacts: (@Sendable ([UInt8: PanelPoint]) -> Void)?
     /// Called when the number of fingers changes: (now, most seen since start). Runs on the HID queue.
     public var onTouchCount: (@Sendable (Int, Int) -> Void)?
@@ -175,7 +176,13 @@ public final class InputPipeline: @unchecked Sendable {
         recognizer.threeFingerDrag = settings.threeFingerDrag
         recognizer.threeFingerAnchor = settings.threeFingerAnchor
         recognizer.drawingMode = settings.inputMode == .drawing
+        if settings.display.widthMm > 0, settings.display.heightMm > 0 {
+            recognizer.panelSizeMm = (settings.display.widthMm, settings.display.heightMm)
+        }
         if let trackpad = settings.trackpad {
+            // Follow-Trackpad on (the default): the trackpad's switches win, including
+            // three-finger drag (off when the macOS key is absent). The menu's stored
+            // value only applies when following is off.
             recognizer.apply(trackpad)
             deliverer.momentumEnabled = trackpad.momentum
         } else {
@@ -414,7 +421,7 @@ public final class InputPipeline: @unchecked Sendable {
 
     /// Pushes the hidden cursor against `display`'s bottom edge until the Dock is there or the time is up,
     /// checking about every 45 ms, then calls `done(arrived, waited ms)`.
-    private func pushDock(to display: ScreenRect, back: Bool, done: @escaping (Bool, Double) -> Void) {
+    private func pushDock(to display: ScreenRect, back: Bool, done: @escaping @Sendable (Bool, Double) -> Void) {
         dockPushGeneration += 1
         dockPush = (dockPushGeneration, back)
         let edge = CGPoint(x: display.x + display.width / 2, y: display.y + display.height - 1)
@@ -422,7 +429,7 @@ public final class InputPipeline: @unchecked Sendable {
         pushDockStep(display: display, edge: edge, generation: dockPushGeneration, startedNs: DispatchTime.now().uptimeNanoseconds, step: 0, done: done)
     }
 
-    private func pushDockStep(display: ScreenRect, edge: CGPoint, generation: Int, startedNs: UInt64, step: Int, done: @escaping (Bool, Double) -> Void) {
+    private func pushDockStep(display: ScreenRect, edge: CGPoint, generation: Int, startedNs: UInt64, step: Int, done: @escaping @Sendable (Bool, Double) -> Void) {
         guard dockPush?.generation == generation else { return }   // cancelled
         let waitedMs = Double(DispatchTime.now().uptimeNanoseconds - startedNs) / 1e6
         let arrived = step % 3 == 2 && DockLocator.isDock(on: display) == true
@@ -641,8 +648,9 @@ public final class InputPipeline: @unchecked Sendable {
         CGGetOnlineDisplayList(0, nil, &count)
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
         CGGetOnlineDisplayList(count, &ids, &count)
+        let want = settings.display
         let found = ids.prefix(Int(count)).first {
-            CGDisplayVendorNumber($0) == settings.displayVendor && CGDisplayModelNumber($0) == settings.displayModel
+            CGDisplayVendorNumber($0) == want.vendor && CGDisplayModelNumber($0) == want.model
         }
         touchDisplayUUID = found.flatMap(SystemDisplays.uuid)
         guard let id = found else {
@@ -650,8 +658,9 @@ public final class InputPipeline: @unchecked Sendable {
                 // The monitor went away mid-use: close any open gesture now, it can't finish normally.
                 deliverer.abortGesture()
                 resetGestureState()
-                status("touch display not found")
             }
+            // Loud on every miss, not only mid-use: a silent pipeline looks exactly like a dead panel.
+            status("touch display not found (looking for vendor \(want.vendor) model \(want.model) \"\(want.nameHint)\")")
             mapper = nil
             return
         }

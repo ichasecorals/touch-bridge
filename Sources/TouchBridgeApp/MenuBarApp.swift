@@ -10,7 +10,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private let log = FileLog(name: "touchbridge")
     private var statusItem: NSStatusItem!
     private let panelLine = NSMenuItem(title: "Panel: starting…", action: nil, keyEquivalent: "")
-    private let displayLine = NSMenuItem(title: "Display: looking for the ARZOPA…", action: nil, keyEquivalent: "")
+    private let displayLine = NSMenuItem(title: "Display: looking for the touch display…", action: nil, keyEquivalent: "")
     private let gestureLine = NSMenuItem(title: "Last gesture: none", action: nil, keyEquivalent: "")
     private let touchesLine = NSMenuItem(title: "Touches: 0 now · 0 max (tracks up to 10)", action: nil, keyEquivalent: "")
     private var enabledItem: NSMenuItem!
@@ -32,6 +32,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var trackpadTimer: Timer?
     private var loginItem: NSMenuItem!
     private var modeItems: [NSMenuItem] = []
+    private var displayMenuItems: [NSMenuItem] = []
+    private var cachedDisplays: [DisplayInfo] = []
     private var running = false
     private var permissionTimer: Timer?
     private var signalSources: [DispatchSourceSignal] = []
@@ -45,10 +47,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         buildMenu()
         installSignalHandlers()
         // Hooks first: anything queued below may already report status.
-        pipeline.onTouchCount = { now, most in
+        pipeline.onTouchCount = { [weak self] now, most in
             Task { @MainActor [weak self] in self?.touchesLine.title = "Touches: \(now) now · \(most) max (tracks up to 10)" }
         }
-        pipeline.onStatus = { [log] message in
+        pipeline.onStatus = { [log, weak self] message in
             log.write(message)
             Task { @MainActor [weak self] in self?.show(message) }
         }
@@ -75,7 +77,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         } else {
             panelLine.title = "Panel: waiting for Accessibility permission"
             log.write("Accessibility not granted; prompted, waiting")
-            permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+            permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard AXIsProcessTrusted() else { return }
                     self?.relaunch()
@@ -102,6 +104,11 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
         menu.addItem(.separator())
         enabledItem = item(menu, "Enabled", #selector(toggleEnabled))
+        let displayMenu = NSMenu()
+        let displayParent = NSMenuItem(title: "Touch Display", action: nil, keyEquivalent: "")
+        displayParent.submenu = displayMenu
+        menu.addItem(displayParent)
+        rebuildDisplayMenu(displayMenu)
         // Per session: every start is back in Gestures, so the panel can't stay stuck in a special mode.
         let touchModeMenu = NSMenu()
         for (title, mode) in [("Gestures", InputMode.gestures),
@@ -203,10 +210,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     /// Re-reads the trackpad settings every few seconds and after wake (cfprefsd writes the plist lazily,
     /// so watching the file would miss changes).
     private func watchTrackpadSettings() {
-        trackpadTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+        trackpadTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.reloadTrackpadSettings() }
         }
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.reloadTrackpadSettings() }
         }
     }
@@ -235,6 +242,56 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         entry.target = self
         menu.addItem(entry)
         return entry
+    }
+
+    /// Display picker: lists online displays so a panel swap is a menu pick, not a source edit.
+    private func rebuildDisplayMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        displayMenuItems.removeAll()
+        cachedDisplays = DisplayLocator.onlineDisplays()
+        for (i, d) in cachedDisplays.enumerated() {
+            let entry = NSMenuItem(title: "\(d.name) — vendor \(d.vendor) model \(d.model)\(d.isMain ? " (main)" : "")",
+                                   action: #selector(chooseDisplay(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.tag = i
+            entry.state = (d.vendor == stored.displayVendor && d.model == stored.displayModel) ? .on : .off
+            displayMenuItems.append(entry)
+            menu.addItem(entry)
+        }
+        let rescan = NSMenuItem(title: "Rescan Displays", action: #selector(rescanDisplays(_:)), keyEquivalent: "")
+        rescan.target = self
+        menu.addItem(.separator())
+        menu.addItem(rescan)
+    }
+
+    @objc private func rescanDisplays(_ sender: NSMenuItem) {
+        guard let menu = sender.menu else { return }
+        menu.removeAllItems()
+        rebuildDisplayMenu(menu)
+    }
+
+    @objc private func chooseDisplay(_ sender: NSMenuItem) {
+        let i = sender.tag
+        guard cachedDisplays.indices.contains(i) else { return }
+        let d = cachedDisplays[i]
+        stored.displayVendor = d.vendor
+        stored.displayModel = d.model
+        // Without an NSScreen the locator invents "display <id>": not a name worth matching on.
+        if d.name != "display \(d.id)" { stored.displayNameHint = d.name }
+        // The gesture thresholds are in millimetres: use the known panel's size, else what the display reports.
+        let reported = CGDisplayScreenSize(d.id)
+        if let known = TouchDisplayIdentity.known(vendor: d.vendor, model: d.model) {
+            stored.displayWidthMm = known.widthMm
+            stored.displayHeightMm = known.heightMm
+        } else if reported.width > 0, reported.height > 0 {
+            stored.displayWidthMm = reported.width
+            stored.displayHeightMm = reported.height
+        }
+        stored.save()
+        let identity = stored.displayIdentity
+        pipeline.update { $0.display = identity }
+        for (j, entry) in displayMenuItems.enumerated() { entry.state = j == i ? .on : .off }
+        log.write("touch display picked: \(d.name) vendor \(d.vendor) model \(d.model)")
     }
 
     private func show(_ message: String) {
@@ -495,10 +552,17 @@ final class FileLog: @unchecked Sendable {
         let stamp = Date().formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits).secondFraction(.fractional(3)))
         let line = Data("\(stamp) \(message)\n".utf8)
         lock.withLock {
+            // Cap log growth (login-item app): rotate past ~5 MB, keeping one old file.
+            if let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64, size > 5_000_000 {
+                let old = Self.directory.appending(path: "\(url.deletingPathExtension().lastPathComponent)-old.log")
+                try? FileManager.default.removeItem(at: old)
+                try? FileManager.default.moveItem(at: url, to: old)
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
             guard let handle = try? FileHandle(forWritingTo: url) else { return }
+            defer { try? handle.close() }
             handle.seekToEndOfFile()
             handle.write(line)
-            try? handle.close()
         }
     }
 }

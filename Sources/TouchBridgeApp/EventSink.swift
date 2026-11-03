@@ -13,7 +13,15 @@ final class EventSink: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        let screen = NSScreen.screens.first { $0.localizedName.contains("ARZOPA") } ?? NSScreen.main!
+        let want = StoredSettings.load().displayNameHint
+        guard let screen = NSScreen.screens.first(where: { $0.localizedName.localizedCaseInsensitiveContains(want) }) ?? NSScreen.main else {
+            log.write("event sink: no screens at all; closing")
+            NSApp.terminate(nil)
+            return
+        }
+        if !screen.localizedName.localizedCaseInsensitiveContains(want) {
+            log.write("event sink: touch display \"\(want)\" not found; showing on \(screen.localizedName) instead")
+        }
         // Created *on* the touch screen: without `screen:` AppKit constrains the frame onto the main display.
         let frame = NSRect(x: screen.frame.width / 2 - 450, y: screen.frame.height / 2 - 300, width: 900, height: 600)
         window = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false, screen: screen)

@@ -12,6 +12,9 @@ public enum HIDEventBridge {
     private typealias Append = @convention(c) (CFTypeRef, CFTypeRef, UInt32) -> Void
     private typealias CreateVendor = @convention(c) (CFAllocator?, UInt64, UInt32, UInt32, UInt32, UnsafePointer<UInt8>, UInt32, UInt32) -> Unmanaged<CFTypeRef>?
     private typealias CopyAttached = @convention(c) (CGEvent) -> Unmanaged<CFTypeRef>?
+    private typealias Create = @convention(c) (CFAllocator?, UInt32, UInt64, UInt32) -> Unmanaged<CFTypeRef>?
+    private typealias SetInteger = @convention(c) (CFTypeRef, UInt32, Int) -> Void
+    private typealias SetFloat = @convention(c) (CFTypeRef, UInt32, Double) -> Void
 
     private static func symbol<T>(_ name: String, as type: T.Type) -> T? {
         dlsym(UnsafeMutableRawPointer(bitPattern: -2), name).map { unsafeBitCast($0, to: type) }
@@ -24,6 +27,9 @@ public enum HIDEventBridge {
     private static let append = symbol("IOHIDEventAppendEvent", as: Append.self)
     private static let createVendor = symbol("IOHIDEventCreateVendorDefinedEvent", as: CreateVendor.self)
     private static let copyAttached = symbol("CGEventCopyIOHIDEvent", as: CopyAttached.self)
+    private static let create = symbol("IOHIDEventCreate", as: Create.self)
+    private static let setInteger = symbol("IOHIDEventSetIntegerValue", as: SetInteger.self)
+    private static let setFloat = symbol("IOHIDEventSetFloatValue", as: SetFloat.self)
 
     public static var isAvailable: Bool {
         createScroll != nil && setPhase != nil && attach != nil
@@ -88,6 +94,27 @@ public enum HIDEventBridge {
               let hid = createScroll(nil, mach_absolute_time(), x, y, 0, 0)?.takeRetainedValue() else { return false }
         setPhase(hid, phase.rawValue)
         if let senderID { setSender?(hid, senderID) }
+        attach(event, hid)
+        return true
+    }
+
+    /// macOS 27 reads dock swipes (Mission Control, Spaces, Launchpad) only from an attached HID event: type
+    /// DockSwipe (23) with the phase in its options, motion (1 horizontal, 2 vertical, 3 pinch), flavor DockPrimary
+    /// and the accumulated progress, plus a Velocity (9) child carrying the exit speed when it ends. Fields are
+    /// `type << 16 | index` (IOKitUser's IOHIDEventFieldDefs.h). From Mac Mouse Fix commit f92d2d53a.
+    @discardableResult
+    public static func attachDockSwipe(to event: CGEvent, motion: Int, phase: Phase, progress: Double, exitSpeed: Double?) -> Bool {
+        guard let create, let setInteger, let setFloat, let attach, let append,
+              let hid = create(nil, 23, 0, UInt32(phase.rawValue) << 24)?.takeRetainedValue() else { return false }
+        setInteger(hid, 23 << 16 | 1, motion)        // kIOHIDEventFieldDockSwipeMotion
+        setInteger(hid, 23 << 16 | 5, 3)             // kIOHIDEventFieldDockSwipeFlavor = kIOHIDGestureFlavorDockPrimary
+        setFloat(hid, 23 << 16 | 2, progress)        // kIOHIDEventFieldDockSwipeProgress
+        if let exitSpeed, let velocity = create(nil, 9, 0, 0)?.takeRetainedValue() {
+            setFloat(velocity, 9 << 16 | 0, exitSpeed)
+            setFloat(velocity, 9 << 16 | 1, exitSpeed)
+            setFloat(velocity, 9 << 16 | 2, 0)
+            append(hid, velocity, 0)
+        }
         attach(event, hid)
         return true
     }

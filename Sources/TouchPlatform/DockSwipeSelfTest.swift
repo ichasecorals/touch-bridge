@@ -45,14 +45,10 @@ public enum DockSwipeSelfTest {
             for _ in 0..<10 { Thread.sleep(forTimeInterval: 0.016); swipe.post(delta: d, kind: .vertical, phase: .changed) }
             Thread.sleep(forTimeInterval: 0.016)
             swipe.post(delta: d, kind: .vertical, phase: .ended)
-            Thread.sleep(forTimeInterval: 1.2)
-            let open = missionControlOpen()
-            log("  → Mission Control open: \(open)")
-            if open {
-                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mission Control.app"))
-                Thread.sleep(forTimeInterval: 1.2)
-                log("  closed again: \(!missionControlOpen())")
-            }
+            // Watch the screen: up opens Mission Control, the down swipe that follows closes it again.
+            // (The old Dock-window check read "open" whenever the Dock had a layer-20 window, and then opened
+            // Mission Control itself to "close" it, so the test looked like it worked when the swipe did nothing.)
+            Thread.sleep(forTimeInterval: 1.5)
         }
         log("done")
     }

@@ -1,15 +1,15 @@
-# TouchBridge: a user-space touchscreen driver for the ARZOPA display
+# TouchBridge: a user-space touchscreen driver for the SIBOLAN display
 
 > Working name **TouchBridge**. UPDD (Universal Pointing Device Driver) is Touch-Base Ltd's commercial product name, so we use our own name. It can be renamed at any point.
 > Location: `~/Projects/TouchBridge`. Step 1 of execution copies this plan into it as `docs/spec.md`.
 
 ## Context
 
-The ARZOPA portable monitor has a built-in touch panel. macOS has no touchscreen support. Apple's generic HID driver treats the panel as an absolute pointer and maps each touch onto **whichever display the cursor is on**. Touching the ARZOPA while the cursor is on the MacBook therefore clicks the matching point on the MacBook screen.
+The SIBOLAN portable monitor has a built-in touch panel. macOS has no touchscreen support. Apple's generic HID driver treats the panel as an absolute pointer and maps each touch onto **whichever display the cursor is on**. Touching the SIBOLAN while the cursor is on the MacBook therefore clicks the matching point on the MacBook screen.
 
 The trial app "Touchscreen Gestures" fixes the mapping but has no multitouch, and you plan to remove it. The goal is our own small agent that:
 
-- makes touch act on the ARZOPA at the touched point;
+- makes touch act on the SIBOLAN at the touched point;
 - keeps the visible cursor on the MacBook screen;
 - supports tap, double-tap, drag, long-press right-click, two-finger scroll, pinch to zoom, rotate, and back/forward.
 
@@ -19,12 +19,12 @@ The trial app "Touchscreen Gestures" fixes the mapping but has no multitouch, an
 |---|---|
 | Mac | MacBook Pro M3 Max (Mac15,11), macOS 15.7.3, Xcode 26.3, Swift 6.2.4, SIP on |
 | Signing | **No code-signing identity** in the keychain |
-| Displays | Built-in XDR (main) + **ARZOPA** 1920×1080@60. EDID vendor 7908, model 342. "Displays have separate Spaces" is ON, so ARZOPA has its own menu bar |
+| Displays | Built-in XDR (main) + **SIBOLAN** 1920×1080@60. EDID vendor 20236, model 0. "Displays have separate Spaces" is ON, so SIBOLAN has its own menu bar |
 | Touch panel | **ILITEK-TOUCH**, USB VID `0x222A` PID `0x0001`, PrimaryUsage 0x0D/0x04, 64-byte reports, claimed by Apple's `AppleUserHIDEventDriver` |
 | RID 4 (multitouch) | 10 slots × 5 bytes, starting at byte 1. Per slot: `b0` bits 0-5 = contact id, bit 6 = tip; X = LE16 (0–16384); Y = LE16 (0–9600). Then ScanTime LE32 @51, ContactCount @55, padding to 64 |
 | RID 5 (mouse fallback) | buttons @1, X LE16 @2, Y LE16 @4 (same ranges) |
 | Features | RID 2 = Contact Count Max (10). RID 6 = 256-byte vendor blob. No Input-Mode feature, so the host can't switch the panel's mode |
-| Physical size | 309.3 × 173.9 mm, about 6.2 px/mm |
+| Physical size | 339.85 × 189.84 mm, about 5.65 px/mm |
 | Conflict | Touchscreen Gestures holds the panel exclusively (pid 69097). Its log shows a **non-root** process can seize the device once Accessibility is granted |
 | Prefs | Two-finger swipe navigation is ON, so a horizontal two-finger scroll already means back/forward in Safari and Chrome |
 

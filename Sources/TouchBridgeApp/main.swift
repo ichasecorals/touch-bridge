@@ -10,7 +10,7 @@ if let index = arguments.firstIndex(of: "--probe") {
 
 if arguments.contains("--system-ui-selftest") {
     let log = FileLog(name: "systemui")
-    SystemUISelfTest.run { log.write($0) }
+    SystemUISelfTest.run(display: StoredSettings.load().displayIdentity) { log.write($0) }
     exit(0)
 }
 

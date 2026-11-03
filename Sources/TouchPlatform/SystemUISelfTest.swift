@@ -10,10 +10,11 @@ import TouchCore
 /// touch display, opens Launchpad, and moves the Dock back. `--spaces` (only on its own) switches the touch
 /// display's Space with the hidden cursor there and nothing focused, then switches back.
 public enum SystemUISelfTest {
-    public static func run(log: @escaping (String) -> Void) {
+    public static func run(display: TouchDisplayIdentity = .sibolanFHD, log: @escaping (String) -> Void) {
         guard AXIsProcessTrusted() else { log("needs Accessibility; stopping"); return }
-        guard let touch = SystemDisplays.online().first(where: { CGDisplayVendorNumber($0) == 7908 && CGDisplayModelNumber($0) == 342 }) else {
-            log("touch display not found; stopping")
+        let want = display
+        guard let touch = SystemDisplays.online().first(where: { CGDisplayVendorNumber($0) == want.vendor && CGDisplayModelNumber($0) == want.model }) else {
+            log("touch display not found (looking for vendor \(want.vendor) model \(want.model) \"\(want.nameHint)\"); stopping")
             return
         }
         CursorVisibility.allowHidingInBackground()

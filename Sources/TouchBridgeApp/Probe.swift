@@ -101,7 +101,7 @@ final class Probe {
         let interval = stats.medianIntervalMs.map { String(format: "%.2f ms (~%.0f Hz)", $0, 1000 / $0) } ?? "n/a"
         var lines = [
             "\(final ? "FINAL" : "progress") summary after \(elapsed) s",
-            "  reports: \(byID.isEmpty ? "none yet — touch the ARZOPA screen" : byID)",
+            "  reports: \(byID.isEmpty ? "none yet — touch the screen" : byID)",
             "  RID 4 max simultaneous contacts: \(stats.maxSimultaneousContacts) → multitouch gate \(stats.multitouchGatePassed ? "PASS" : "not passed yet")",
             "  distinct contact ids: \(stats.distinctContactIDs.sorted())",
             "  median report interval: \(interval)",

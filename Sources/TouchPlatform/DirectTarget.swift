@@ -25,6 +25,7 @@ struct DirectTarget: Equatable {
 
     func post(_ event: CGEvent) {
         event.setIntegerValueField(Self.windowNumberField, value: Int64(window))
+        // Only the origin matters: windowLocation subtracts the top-left corner; size is unused.
         let local = DirectAddressing.windowLocation(
             of: ScreenPoint(x: event.location.x, y: event.location.y),
             in: ScreenRect(x: origin.x, y: origin.y, width: 0, height: 0)

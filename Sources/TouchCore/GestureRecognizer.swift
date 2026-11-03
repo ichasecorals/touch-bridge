@@ -103,13 +103,18 @@ public struct GestureConfig: Codable, Equatable, Sendable {
     public var maxMultiContacts = 5
     /// Travel before a four-finger gesture is classified, and how far a full swipe (progress 1.0) is.
     public var dockSwipeDecisionMm = 8.0
-    public var dockSwipeMmPerUnit = 80.0
+    /// A four-finger pinch needs this much spread change, and twice the hand's travel: fingers drifting
+    /// together during a swipe up were read as Launchpad pinches.
+    public var dockPinchDecisionMm = 10.0
+    /// Finger travel per unit of dock-swipe progress. 80 mm left typical 1-2 cm touchscreen swipes at 0.15-0.3 progress,
+    /// where macOS 27 completes Mission Control only some of the time; 40 mm puts them at 0.3-0.6.
+    public var dockSwipeMmPerUnit = 40.0
     public var dockPinchMmPerUnit = 40.0
     /// Two fingers starting this close to the panel's right edge and moving left this far open Notification Center.
     public var edgeZoneMm = 15.0
     public var edgeSwipeMm = 10.0
-    public var panelWidthMm = 309.3
-    public var panelHeightMm = 173.9
+    public var panelWidthMm = 339.85
+    public var panelHeightMm = 189.84
     public var tapSlopMm = 3.0
     public var doubleTapRadiusMm = 8.0
     public var doubleTapIntervalNs: UInt64 = 500_000_000
@@ -141,6 +146,9 @@ public struct GestureRecognizer: Sendable {
         var firstDownNs: UInt64
         var start: [UInt8: PanelPoint]
         var positions: [UInt8: PanelPoint]
+        /// Extra fingers tracked while three-finger drag is off: they don't affect the
+        /// two-finger gesture, but a fourth may still form a dock swipe (see `startMultiFinger`).
+        var additional: [UInt8: PanelPoint] = [:]
         var startCentroid: PanelPoint
         var startDistance: Double
         var startAngle: Double
@@ -204,6 +212,11 @@ public struct GestureRecognizer: Sendable {
         get { config.threeFingerAnchor }
         set { config.threeFingerAnchor = newValue }
     }
+    /// The panel's physical size, so thresholds in millimetres follow the display in use.
+    public var panelSizeMm: (width: Double, height: Double) {
+        get { (config.panelWidthMm, config.panelHeightMm) }
+        set { config.panelWidthMm = newValue.width; config.panelHeightMm = newValue.height }
+    }
     public var drawingMode: Bool {
         get { config.drawingMode }
         set { config.drawingMode = newValue }
@@ -250,7 +263,10 @@ public struct GestureRecognizer: Sendable {
             }
             if active.count > contactLimit {
                 if event.phase == .began, let multi = startMultiFinger(event, point, now) {
+                    // Three fingers moving as one may have started a scroll before the fourth landed: end it cleanly.
+                    if case let .twoFinger(g) = state, g.lock == .scroll { actions.append(.scrollEnded(velocityX: 0, velocityY: 0)) }
                     state = .multiFinger(multi)
+                    restingExtras = [:]
                     continue
                 }
                 actions += cancel()
@@ -292,7 +308,7 @@ public struct GestureRecognizer: Sendable {
                     restingExtras = [:]
                     state = .twoFinger(startTwoFinger(id, current, event.id, point, now, firstDownNs: downNs))
                     return []
-                case .began where config.threeFingerDrag && now - downNs <= config.restingDragWindowNs:
+                case .began where now - downNs <= config.restingDragWindowNs:
                     restingExtras[event.id] = point
                 case .moved where restingExtras[event.id] != nil:
                     restingExtras[event.id] = point
@@ -302,7 +318,7 @@ public struct GestureRecognizer: Sendable {
                 default:
                     return []   // one late finger alone is ignored, as before
                 }
-                guard restingExtras.count == 2 else { return [] }
+                guard restingExtras.count == 2, config.threeFingerDrag else { return [] }   // drag off: only tracked, for a fourth finger
                 // Rest a finger, add two: a three-finger drag that grabs under the resting finger.
                 var start = restingExtras
                 start[id] = current
@@ -359,14 +375,33 @@ public struct GestureRecognizer: Sendable {
 
         case var .twoFinger(g):
             if event.phase == .began, event.id != g.ids.0, event.id != g.ids.1, g.lock == nil,
-               config.threeFingerDrag, now - g.firstDownNs <= config.threeFingerWindowNs,
+               now - g.firstDownNs <= config.threeFingerWindowNs,
                let a = g.positions[g.ids.0], let b = g.positions[g.ids.1] {
-                let start = [g.ids.0: a, g.ids.1: b, event.id: point]
-                let three = ThreeFinger(ids: [g.ids.0, g.ids.1, event.id], firstDownNs: g.firstDownNs, start: start, positions: start, lastAnchor: point)
-                state = .threeFinger(three)
+                if config.threeFingerDrag {
+                    let start = [g.ids.0: a, g.ids.1: b, event.id: point]
+                    let three = ThreeFinger(ids: [g.ids.0, g.ids.1, event.id], firstDownNs: g.firstDownNs, start: start, positions: start, lastAnchor: point)
+                    state = .threeFinger(three)
+                    return []
+                }
+                // Three-finger drag is off: the third finger doesn't change the two-finger
+                // gesture, but it is tracked so a fourth may still form a dock swipe.
+                g.additional[event.id] = point
+                state = .twoFinger(g)
                 return []
             }
-            guard event.id == g.ids.0 || event.id == g.ids.1 else { return [] }
+            if event.id != g.ids.0 && event.id != g.ids.1 {
+                // An extra finger tracked while three-finger drag is off: keep its
+                // position fresh so a fourth finger can use it, otherwise ignore.
+                if g.additional[event.id] != nil {
+                    if event.phase == .ended {
+                        g.additional[event.id] = nil
+                    } else {
+                        g.additional[event.id] = point
+                    }
+                    state = .twoFinger(g)
+                }
+                return []
+            }
             if event.phase == .ended {
                 state = active.isEmpty ? .idle : .ignoring
                 return endTwoFinger(g, now)
@@ -399,6 +434,17 @@ public struct GestureRecognizer: Sendable {
                 return []
             }
             guard m.ids.contains(event.id) else { return [] }
+            if event.phase == .ended, m.ids.count > 3 {
+                // One finger lifting early (or the panel dropping a contact) doesn't end the swipe while three
+                // others are still down, as on the trackpad: carry on with them, measured from where they are now.
+                m.ids.removeAll { $0 == event.id }
+                m.start[event.id] = nil
+                m.positions[event.id] = nil
+                m.lastCentroidMm = centroidMm(m.positions)
+                m.lastSpreadMm = spreadMm(m.positions)
+                state = .multiFinger(m)
+                return []
+            }
             if event.phase == .ended {
                 state = active.isEmpty ? .idle : .ignoring
                 return m.lock.map { [.dockSwipe($0, delta: 0, phase: .ended)] } ?? []
@@ -448,15 +494,40 @@ public struct GestureRecognizer: Sendable {
     }
 
     /// A fourth finger joins three that landed together and haven't started a drag.
+    /// With three-finger drag off the third finger is tracked on `.twoFinger`
+    /// (see `additional`), so a fourth may still form a dock swipe from there.
     private func startMultiFinger(_ event: ContactEvent, _ point: PanelPoint, _ now: UInt64) -> MultiFinger? {
-        guard case let .threeFinger(t) = state, !t.dragging, active.count == config.maxContacts + 1,
-              now - t.firstDownNs <= config.multiFingerWindowNs else { return nil }
-        var start = t.positions
-        start[event.id] = point
-        var m = MultiFinger(ids: t.ids + [event.id], firstDownNs: t.firstDownNs, start: start, positions: start)
-        m.lastCentroidMm = centroidMm(start)
-        m.lastSpreadMm = spreadMm(start)
-        return m
+        if case let .threeFinger(t) = state, !t.dragging, active.count == config.maxContacts + 1,
+           now - t.firstDownNs <= config.multiFingerWindowNs {
+            var start = t.positions
+            start[event.id] = point
+            var m = MultiFinger(ids: t.ids + [event.id], firstDownNs: t.firstDownNs, start: start, positions: start)
+            m.lastCentroidMm = centroidMm(start)
+            m.lastSpreadMm = spreadMm(start)
+            return m
+        }
+        if case let .twoFinger(g) = state, g.lock == nil || g.lock == .scroll, active.count == config.maxContacts + 1,
+           now - g.firstDownNs <= config.multiFingerWindowNs, g.additional.count == 1 {
+            // Like the three-finger path: every finger starts from where it is now.
+            var positions = g.positions
+            for (id, p) in g.additional { positions[id] = p }
+            positions[event.id] = point
+            let ids = [g.ids.0, g.ids.1] + g.additional.keys.sorted() + [event.id]
+            var m = MultiFinger(ids: ids, firstDownNs: g.firstDownNs, start: positions, positions: positions)
+            m.lastCentroidMm = centroidMm(positions)
+            m.lastSpreadMm = spreadMm(positions)
+            return m
+        }
+        // Rest a finger, add two late ones (three-finger drag off, so they were only tracked), add a fourth.
+        if case let .oneFinger(id, downNs, _, _) = state, restingExtras.count == 2,
+           active.count == config.maxContacts + 1, now - downNs <= config.multiFingerWindowNs {
+            let ids = [id] + restingExtras.keys.sorted() + [event.id]
+            var m = MultiFinger(ids: ids, firstDownNs: downNs, start: active, positions: active)
+            m.lastCentroidMm = centroidMm(active)
+            m.lastSpreadMm = spreadMm(active)
+            return m
+        }
+        return nil
     }
 
     private func updateMultiFinger(_ m: inout MultiFinger) -> [GestureAction] {
@@ -472,7 +543,8 @@ public struct GestureRecognizer: Sendable {
             let spreadChange = spread - s0
             // Coherence: all fingers but one must take part, so a hand settling doesn't trigger anything.
             let needed = m.ids.count - 1
-            if abs(spreadChange) > config.dockSwipeDecisionMm, abs(spreadChange) > travel {
+            // With the pinch off (Launchpad & Show Desktop switched off), only swipes are considered.
+            if config.fourFingerPinch, abs(spreadChange) > config.dockPinchDecisionMm, abs(spreadChange) > 2 * travel {
                 let radial = m.ids.compactMap { id -> Double? in
                     guard let p = points[id], let p0 = start[id] else { return nil }
                     let r = hypot(p.x * config.panelWidthMm - centroid.x, p.y * config.panelHeightMm - centroid.y)
@@ -480,7 +552,6 @@ public struct GestureRecognizer: Sendable {
                     return r - r0
                 }
                 guard radial.filter({ ($0 < 0) == (spreadChange < 0) && abs($0) >= 2 }).count >= needed else { return [] }
-                guard config.fourFingerPinch else { return [] }
                 m.lock = .pinch
                 return [.dockSwipe(.pinch, delta: -spreadChange / config.dockPinchMmPerUnit, phase: .began)]
             }
@@ -556,8 +627,9 @@ public struct GestureRecognizer: Sendable {
 
     private mutating func tap(at point: PanelPoint, _ now: UInt64) -> GestureAction {
         if let last = lastTap, now - last.ns <= config.doubleTapIntervalNs, distanceMm(point, last.at) <= config.doubleTapRadiusMm {
-            lastTap = (now, last.at, last.count + 1)
-            return .tap(at: last.at, count: last.count + 1)
+            let count = min(last.count + 1, 3)   // macOS triple-click is the ceiling
+            lastTap = (now, last.at, count)
+            return .tap(at: last.at, count: count)
         }
         lastTap = (now, point, 1)
         return .tap(at: point, count: 1)

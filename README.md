@@ -124,7 +124,7 @@ The top line shows fingers now and the most at once. Clear wipes the canvas.
 
 | | |
 |---|---|
-| Touch monitor | ARZOPA portable touch monitor, 1920×1080 |
+| Touch monitor | SIBOLAN FHD portable touch monitor, 1920×1080 (EDID vendor 20236, model 0) |
 | Touch controller | ILITEK, USB `0x222A:0x0001`, HID multitouch digitizer, 10 contacts |
 | Mac | MacBook Pro (Apple silicon, M3 Max), macOS 15.7 |
 
@@ -141,7 +141,7 @@ Portable touch monitors often use ILITEK controllers. If yours reports the same 
 
 - **macOS 15 (Sequoia).** Developed on 15.7; other versions are untested. TouchBridge relies on undocumented event formats that can change between macOS releases (see [Caveats](#caveats)).
 - **An Apple silicon Mac.** Intel is untested.
-- **A Swift 6 toolchain** (Xcode 16 or later, or the matching command-line tools).
+- **A Swift 6 toolchain** (Xcode 16 or later; Command Line Tools alone can build but `swift test` needs Xcode for the Testing macros).
 - **No other touchscreen driver** running, such as UPDD or Touchscreen Gestures. They take the panel exclusively, and so does TouchBridge.
 
 ## Install
@@ -266,7 +266,7 @@ You'll change a few constants and possibly the report parser, then rebuild.
    ```bash
    open -g -n build/TouchBridge.app --args --ax-probe --menubar
    ```
-   `axprobe.log` lists every display with its vendor and model numbers. Set `displayVendor` and `displayModel` in `PipelineSettings` (`Sources/TouchPlatform/InputPipeline.swift`). The self-test in `SystemUISelfTest.swift` uses the same numbers.
+   `axprobe.log` lists every display with its vendor and model numbers. Set the touch display in `TouchDisplayIdentity` (`Sources/TouchCore/TouchDisplayIdentity.swift`), or pick it at runtime from the menu (Touch Display). `PipelineSettings.display` carries the choice; the self-test in `SystemUISelfTest.swift` uses the same identity.
 
 5. **Set the physical size.** Set `panelWidthMm` and `panelHeightMm` in `GestureConfig` (`Sources/TouchCore/GestureRecognizer.swift`) to the panel's active area. Gesture thresholds are in millimetres.
 
@@ -356,7 +356,7 @@ swift test
 ./scripts/install.sh
 ```
 
-- `swift test` runs the unit tests, the delivery tests and the replay of a real panel recording.
+- `swift test` runs the unit tests, the delivery tests and the replay of a real panel recording (requires Xcode; `swift build` works with Command Line Tools alone).
 - `./scripts/bundle.sh` builds and signs `build/TouchBridge.app` for development.
 - `./scripts/install.sh` builds, installs to `~/Applications` and restarts the login item.
 - `CHANGELOG.md` lists the changes in each version.

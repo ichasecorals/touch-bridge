@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Touch display is now the SIBOLAN FHD (EDID vendor 20236, model 0, 339.85 × 189.84 mm); `TouchDisplayIdentity` is the single source of truth for the pipeline, self-test and Event Sink, with a Touch Display picker in the menu.
+- Four-finger system gestures work with three-finger drag off (finger counting decoupled from drag handling); three-finger touch still scrolls when drag is off.
+- Gesture thresholds use the SIBOLAN physical size (or the picked display's), not a fixed panel size.
+- **Mission Control, Spaces and Launchpad work on macOS 27.** macOS 27 no longer reads the CGEvent fields the dock swipes were built from; on macOS 27 the swipe now travels as an attached IOHIDEvent (DockSwipe type, motion, flavor and progress, plus a Velocity child on release), as in Mac Mouse Fix commit f92d2d53a. Older macOS keeps the old format.
+- Four-finger swipes are more reliable on a touchscreen:
+  - one finger lifting early (or the panel dropping a contact) no longer ends the swipe while three fingers are still down;
+  - the same finger travel counts for twice the progress (40 mm per unit instead of 80), so 1-2 cm swipes complete;
+  - the exit speed is the average over the last 60 ms, not the last frame, so a swipe that slows before lifting still counts;
+  - a four-finger pinch needs 10 mm of spread change and twice the hand's travel, so fingers drifting together during a swipe up aren't read as Launchpad.
+- With the Launchpad & Show Desktop pinch switched off, four-finger movements are judged only as swipes.
+- Fixes: tap count stops at 3; the log rotates at about 5 MB without losing the line that triggered it; the self-test uses the picked display, and `--dockswipe-selftest` no longer opens Mission Control itself (its Dock-window check was always true, so the test looked like it passed when nothing happened).
+- Each dock swipe logs one line when it begins and one when it ends (steps, progress, exit speed).
+
 ## 1.1.0 (2026-10-11)
 
 - **Touch Mode menu** (✋ → Touch Mode). It resets to Gestures at each start, and the menu-bar icon shows a special mode.

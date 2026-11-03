@@ -307,6 +307,24 @@ private struct Script {
     guard case .scroll(_, _, .began) = s.actions.first else { Issue.record("expected the two-finger scroll, got \(s.actions)"); return }
 }
 
+@Test func withThreeFingerDragOffFourFingersStillOpenMissionControl() {
+    var s = Script { $0.threeFingerDrag = false }
+    fourDown(&s)
+    moveAll(&s, 100, ids: [0, 1, 2, 3], from: fourStart, dx: 0, dy: -mmY(20))
+    let swipes = dockSwipes(s.actions)
+    #expect(swipes.first?.kind == .vertical && swipes.first?.phase == .began)
+    #expect(swipes.filter { $0.phase != .ended }.allSatisfy { $0.delta > 0 })
+}
+
+@Test func withThreeFingerDragOffFourFingersStillSwitchSpaces() {
+    var s = Script { $0.threeFingerDrag = false }
+    fourDown(&s)
+    moveAll(&s, 100, ids: [0, 1, 2, 3], from: fourStart, dx: -mmX(15), dy: 0)
+    let swipes = dockSwipes(s.actions)
+    #expect(swipes.first?.kind == .horizontal)
+    #expect((swipes.first?.delta ?? 0) > 0)
+}
+
 @Test func aPalmDuringAThreeFingerDragEndsIt() {
     var s = Script()
     s.at(0, began(0, 0.4, 0.5), began(1, 0.5, 0.5), began(2, 0.6, 0.5))
@@ -494,7 +512,8 @@ private let fourStart: [(Double, Double)] = [(0.4, 0.5), (0.45, 0.5), (0.5, 0.5)
     fourDown(&s)
     moveAll(&s, 100, ids: [0, 1, 2, 3], from: fourStart, dx: 0, dy: -mmY(10))
     moveAll(&s, 120, ids: [0, 1, 2, 3], from: fourStart, dx: 0, dy: -mmY(20))
-    s.at(140, ended(0, 0.4, 0.5 - mmY(20)))
+    // The hand lifts: the swipe ends once fewer than three fingers are left.
+    s.at(140, ended(0, 0.4, 0.5 - mmY(20)), ended(1, 0.45, 0.5 - mmY(20)), ended(2, 0.5, 0.5 - mmY(20)), ended(3, 0.55, 0.58 - mmY(20)))
     let swipes = dockSwipes(s.actions)
     #expect(swipes.first?.kind == .vertical && swipes.first?.phase == .began)
     #expect(swipes.filter { $0.phase != .ended }.allSatisfy { $0.delta > 0 }, "up = positive = Mission Control")
@@ -581,4 +600,93 @@ private let fourStart: [(Double, Double)] = [(0.4, 0.5), (0.45, 0.5), (0.5, 0.5)
     s.at(70, moved(0, x - mmX(16), 0.40), moved(1, x - mmX(9), 0.47))
     #expect(s.actions.contains(.notificationCenter))
     #expect(!s.actions.contains { if case .rotate = $0 { true } else { false } })
+}
+
+@Test func withThreeFingerDragOffMovingBeforeTheFourthLandsStillSwipes() {
+    var s = Script { $0.threeFingerDrag = false }
+    s.at(0, began(0, 0.4, 0.5), began(1, 0.45, 0.5), began(2, 0.5, 0.5))
+    s.at(30, moved(0, 0.4, 0.5 - mmY(5)), moved(1, 0.45, 0.5 - mmY(5)))
+    s.at(60, began(3, 0.55, 0.58))
+    moveAll(&s, 120, ids: [0, 1, 2, 3], from: fourStart, dx: 0, dy: -mmY(20))
+    #expect(dockSwipes(s.actions).first?.kind == .vertical, "got \(s.actions)")
+    // Any scroll that started before the fourth finger landed is ended, not left running.
+    let scrollBegan = s.actions.filter { if case .scroll(_, _, .began) = $0 { true } else { false } }.count
+    let scrollEnded = s.actions.filter { if case .scrollEnded = $0 { true } else { false } }.count
+    #expect(scrollBegan == scrollEnded)
+}
+
+@Test func withThreeFingerDragOffFourFingersLandingOneByOneStillSwipe() {
+    var s = Script { $0.threeFingerDrag = false }
+    s.at(0, began(0, 0.4, 0.5))
+    s.at(200, began(1, 0.45, 0.5))
+    s.at(220, began(2, 0.5, 0.5))
+    s.at(240, began(3, 0.55, 0.58))
+    moveAll(&s, 300, ids: [0, 1, 2, 3], from: fourStart, dx: 0, dy: -mmY(10))
+    moveAll(&s, 320, ids: [0, 1, 2, 3], from: fourStart, dx: 0, dy: -mmY(20))
+    #expect(dockSwipes(s.actions).first?.kind == .vertical, "got \(s.actions)")
+}
+
+@Test func withThreeFingerDragOffAThirdFingerStillScrollsAfterTheFourFingerWindow() {
+    var s = Script { $0.threeFingerDrag = false }
+    s.at(0, began(0, 0.4, 0.4), began(1, 0.5, 0.4), began(2, 0.6, 0.4))
+    s.at(400, moved(0, 0.4, 0.4 + mmY(6)), moved(1, 0.5, 0.4 + mmY(6)), moved(2, 0.6, 0.4 + mmY(6)))
+    guard case .scroll(_, _, .began) = s.actions.first else { Issue.record("expected the scroll, got \(s.actions)"); return }
+}
+
+@Test func tapCountStopsAtThree() {
+    var s = Script()
+    for i in 0..<4 { let t = UInt64(i) * 200; s.at(t, began(0, 0.5, 0.5)); s.at(t + 60, ended(0, 0.5, 0.5)) }
+    #expect(s.actions.map { if case let .tap(_, count) = $0 { count } else { -1 } } == [1, 2, 3, 3])
+}
+
+@Test func fingersDriftingTogetherDuringASwipeUpStillOpenMissionControl() {
+    // A hand tightening as it swipes up: the outer fingers close in by 15 mm, the inner ones by 5 mm, while the hand
+    // has only moved 6 mm when the decision is first possible. This used to be read as a Launchpad pinch.
+    var s = Script()
+    fourDown(&s)
+    func frame(_ t: UInt64, up mm: Double) {
+        let inward = [mmX(15), mmX(5), -mmX(5), -mmX(15)]
+        let events = zip([UInt8(0), 1, 2, 3], fourStart).enumerated().map { i, pair in
+            moved(pair.0, pair.1.0 + inward[i], pair.1.1 - mmY(mm))
+        }
+        s.actions += s.recognizer.handle(events, atNs: t * ms)
+    }
+    frame(100, up: 6)
+    frame(130, up: 20)
+    #expect(dockSwipes(s.actions).first?.kind == .vertical, "got \(s.actions)")
+}
+
+@Test func oneFingerLiftingEarlyDoesNotEndAFourFingerSwipe() {
+    // Swiping down to close Mission Control, the little finger comes off first: the other three carry on.
+    var s = Script()
+    fourDown(&s)
+    moveAll(&s, 100, ids: [0, 1, 2, 3], from: fourStart, dx: 0, dy: mmY(12))
+    s.at(110, ended(3, fourStart[3].0, fourStart[3].1 + mmY(12)))
+    #expect(!dockSwipes(s.actions).contains { $0.phase == .ended }, "a lifted finger ended the swipe: \(s.actions)")
+    moveAll(&s, 130, ids: [0, 1, 2], from: fourStart, dx: 0, dy: mmY(30))
+    let swipes = dockSwipes(s.actions)
+    #expect(swipes.first?.kind == .vertical && swipes.first?.phase == .began)
+    #expect(swipes.last?.phase == .changed && (swipes.last?.delta ?? 0) < 0, "the swipe kept going down: \(swipes)")
+    let progress = swipes.reduce(0) { $0 + $1.delta }
+    #expect(abs(progress - (-mmY(30) * config.panelHeightMm / config.dockSwipeMmPerUnit)) < 0.02, "no jump when the finger left: \(progress)")
+    s.at(150, ended(0, 0.4, 0.5 + mmY(30)))
+    #expect(dockSwipes(s.actions).last?.phase == .ended, "down to two fingers: the swipe ends")
+}
+
+@Test func withThePinchOffFingersCurlingAsTheySwipeDownStillCloseMissionControl() {
+    // Starting a downward swipe on an upright screen, the fingers curl together (18 mm) before the hand moves much.
+    // With Launchpad & Show Desktop off, the curl is never a pinch: the movement becomes the swipe.
+    var s = Script { $0.fourFingerPinch = false }
+    fourDown(&s)
+    func frame(_ t: UInt64, down mm: Double) {
+        let inward = [mmX(18), mmX(6), -mmX(6), -mmX(18)]
+        let events = zip([UInt8(0), 1, 2, 3], fourStart).enumerated().map { i, pair in
+            moved(pair.0, pair.1.0 + inward[i], pair.1.1 + mmY(mm))
+        }
+        s.actions += s.recognizer.handle(events, atNs: t * ms)
+    }
+    frame(100, down: 4)
+    frame(130, down: 20)
+    let swipes = dockSwipes(s.actions)
+    #expect(swipes.first?.kind == .vertical && (swipes.first?.delta ?? 0) < 0, "got \(s.actions)")
 }

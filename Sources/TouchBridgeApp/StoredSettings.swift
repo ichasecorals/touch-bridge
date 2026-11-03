@@ -19,12 +19,29 @@ struct StoredSettings: Sendable {
     var keepFocusOnSpaceSwitch = true
     /// Two-finger scrolls drive trackpad page swipes (Safari back/forward).
     var swipeBetweenPages = true
+    var displayVendor: UInt32 = TouchDisplayIdentity.sibolanFHD.vendor
+    var displayModel: UInt32 = TouchDisplayIdentity.sibolanFHD.model
+    var displayNameHint: String = TouchDisplayIdentity.sibolanFHD.nameHint
+    var displayWidthMm = TouchDisplayIdentity.sibolanFHD.widthMm
+    var displayHeightMm = TouchDisplayIdentity.sibolanFHD.heightMm
+
+    /// The chosen touch display, with its physical size, as the pipeline and self-test use it.
+    var displayIdentity: TouchDisplayIdentity {
+        TouchDisplayIdentity(vendor: displayVendor, model: displayModel, nameHint: displayNameHint,
+                             widthMm: displayWidthMm, heightMm: displayHeightMm)
+    }
 
     private static var defaults: UserDefaults { .standard }
 
     static func load() -> StoredSettings {
         let d = defaults
         var s = StoredSettings(threeFingerDrag: d.object(forKey: "threeFingerDrag") as? Bool ?? trackpadThreeFingerDrag())
+        // UserDefaults hands integers back as NSNumber; the struct defaults cover missing keys.
+        if let n = d.object(forKey: "displayVendor") as? NSNumber { s.displayVendor = n.uint32Value }
+        if let n = d.object(forKey: "displayModel") as? NSNumber { s.displayModel = n.uint32Value }
+        if let w = d.object(forKey: "displayWidthMm") as? Double, w > 0 { s.displayWidthMm = w }
+        if let h = d.object(forKey: "displayHeightMm") as? Double, h > 0 { s.displayHeightMm = h }
+        s.displayNameHint = d.string(forKey: "displayNameHint") ?? TouchDisplayIdentity.sibolanFHD.nameHint
         s.delivery = d.string(forKey: "delivery").flatMap(DeliveryMode.init(rawValue:))
         s.gesturesDirect = d.object(forKey: "gesturesDirect") as? Bool ?? true
         s.oneFingerScroll = d.object(forKey: "oneFingerScroll") as? Bool ?? true
@@ -40,6 +57,11 @@ struct StoredSettings: Sendable {
     func save() {
         let d = Self.defaults
         d.set(delivery?.rawValue, forKey: "delivery")
+        d.set(displayVendor, forKey: "displayVendor")
+        d.set(displayModel, forKey: "displayModel")
+        d.set(displayNameHint, forKey: "displayNameHint")
+        d.set(displayWidthMm, forKey: "displayWidthMm")
+        d.set(displayHeightMm, forKey: "displayHeightMm")
         d.set(gesturesDirect, forKey: "gesturesDirect")
         d.set(oneFingerScroll, forKey: "oneFingerScroll")
         d.set(returnFocus, forKey: "returnFocus")
@@ -59,6 +81,7 @@ struct StoredSettings: Sendable {
     private func apply(to p: inout PipelineSettings) {
         p.policy.forced = delivery
         p.policy.gesturesDirect = gesturesDirect
+        p.display = displayIdentity
         p.oneFingerDrag = oneFingerScroll ? .scroll : .clickAndDrag
         p.focus = returnFocus ? .returnToPrevious : .followTouch
         p.threeFingerDrag = threeFingerDrag
